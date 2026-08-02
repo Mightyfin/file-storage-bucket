@@ -1,4 +1,4 @@
-module github.com/Mightyfin/document-service
+module github.com/Mightyfin/file-storage-bucket
 
 go 1.25.7
 

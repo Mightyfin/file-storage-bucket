@@ -2,8 +2,8 @@ package main
 
 import (
 	"context"
-	"github.com/Mightyfin/document-service/internal/config"
-	"github.com/Mightyfin/document-service/internal/database"
+	"github.com/Mightyfin/file-storage-bucket/internal/config"
+	"github.com/Mightyfin/file-storage-bucket/internal/database"
 	"log/slog"
 	"os"
 )

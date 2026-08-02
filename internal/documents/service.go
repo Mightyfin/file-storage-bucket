@@ -13,7 +13,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/Mightyfin/document-service/internal/objectstore"
+	"github.com/Mightyfin/file-storage-bucket/internal/objectstore"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 )

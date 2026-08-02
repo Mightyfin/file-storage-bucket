@@ -16,11 +16,16 @@ services:
     build: .
     entrypoint: ["/document-migrate"]
     environment: &runtime
-      DOCUMENT_ENVIRONMENT: local
+      DOCUMENT_ENVIRONMENT: sandbox
       DOCUMENT_HTTP_ADDRESS: ":8080"
       DOCUMENT_DATABASE_URL: postgres://documents:local-documents-only@postgres:5432/documents?sslmode=disable
-      DOCUMENT_AUTH_MODE: disabled
+      DOCUMENT_AUTH_MODE: oidc
+      DOCUMENT_OIDC_ISSUER: http://127.0.0.1.nip.io:18081/realms/mightyfin-sandbox
+      DOCUMENT_OIDC_AUDIENCE: mightyfin-document-sandbox
       DOCUMENT_PARTY_BASE_URL: http://host.docker.internal:18086
+      DOCUMENT_PARTY_TOKEN_URL: http://127.0.0.1.nip.io:18081/realms/mightyfin-sandbox/protocol/openid-connect/token
+      DOCUMENT_PARTY_CLIENT_ID: document-party-client
+      DOCUMENT_PARTY_CLIENT_SECRET: local-document-party-change-me
       DOCUMENT_S3_ENDPOINT: http://host.docker.internal:18333
       DOCUMENT_S3_REGION: zm-lusaka-1
       DOCUMENT_S3_ACCESS_KEY: mightyfin-documents-local
@@ -33,7 +38,7 @@ services:
     build: .
     environment: *runtime
     ports: ["127.0.0.1:18088:8080"]
-    extra_hosts: ["host.docker.internal:host-gateway"]
+    extra_hosts: ["host.docker.internal:host-gateway", "127.0.0.1.nip.io:host-gateway"]
     depends_on:
       migrate: {condition: service_completed_successfully}
 
@@ -53,7 +58,7 @@ services:
     environment:
       <<: *runtime
       DOCUMENT_CLAM_ADDRESS: clamav:3310
-    extra_hosts: ["host.docker.internal:host-gateway"]
+    extra_hosts: ["host.docker.internal:host-gateway", "127.0.0.1.nip.io:host-gateway"]
     depends_on:
       migrate: {condition: service_completed_successfully}
       clamav: {condition: service_healthy}

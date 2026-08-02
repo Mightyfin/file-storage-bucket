@@ -37,5 +37,27 @@ services:
     depends_on:
       migrate: {condition: service_completed_successfully}
 
+  clamav:
+    image: clamav/clamav:1.5.3-debian13-slim
+    volumes: [clamav-signatures:/var/lib/clamav]
+    healthcheck:
+      test: ["CMD", "clamdcheck.sh"]
+      interval: 15s
+      timeout: 10s
+      retries: 40
+      start_period: 60s
+
+  scanner:
+    build: .
+    entrypoint: ["/document-scanner"]
+    environment:
+      <<: *runtime
+      DOCUMENT_CLAM_ADDRESS: clamav:3310
+    extra_hosts: ["host.docker.internal:host-gateway"]
+    depends_on:
+      migrate: {condition: service_completed_successfully}
+      clamav: {condition: service_healthy}
+
 volumes:
   document-postgres-data: {}
+  clamav-signatures: {}

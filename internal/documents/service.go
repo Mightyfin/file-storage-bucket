@@ -148,7 +148,7 @@ func (s *Service) RecordScan(ctx context.Context, scope Scope, id, outcome, reas
 		status = "rejected"
 	}
 	var out Document
-	e := s.db.QueryRow(ctx, `UPDATE documents SET scan_status=$4,status=$5,updated_at=now() WHERE public_id=$1 AND tenant_id=$2 AND environment=$3 AND status='quarantined' AND scan_status='pending' RETURNING public_id,COALESCE(party_id,''),owner_type,owner_id,status,scan_status,document_type,purpose,classification,content_type,size_bytes,sha256_hex,created_at`, id, scope.TenantID, scope.Environment, outcome, status).Scan(&out.ID, &out.PartyID, &out.OwnerType, &out.OwnerID, &out.Status, &out.ScanStatus, &out.DocumentType, &out.Purpose, &out.Classification, &out.ContentType, &out.Size, &out.SHA256, &out.CreatedAt)
+	e := s.db.QueryRow(ctx, `UPDATE documents SET scan_status=$4,status=$5,scan_lease_until=NULL,updated_at=now() WHERE public_id=$1 AND tenant_id=$2 AND environment=$3 AND status='quarantined' AND scan_status IN ('pending','scanning','failed') RETURNING public_id,COALESCE(party_id,''),owner_type,owner_id,status,scan_status,document_type,purpose,classification,content_type,size_bytes,sha256_hex,created_at`, id, scope.TenantID, scope.Environment, outcome, status).Scan(&out.ID, &out.PartyID, &out.OwnerType, &out.OwnerID, &out.Status, &out.ScanStatus, &out.DocumentType, &out.Purpose, &out.Classification, &out.ContentType, &out.Size, &out.SHA256, &out.CreatedAt)
 	if errors.Is(e, pgx.ErrNoRows) {
 		return Document{}, ErrConflict
 	}

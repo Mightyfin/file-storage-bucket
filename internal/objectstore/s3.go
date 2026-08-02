@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"io"
 	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
@@ -17,6 +18,11 @@ type Store struct {
 	client  *s3.Client
 	presign *s3.PresignClient
 	bucket  string
+}
+func (s *Store) Open(ctx context.Context, key string) (io.ReadCloser, error) {
+	out, err := s.client.GetObject(ctx, &s3.GetObjectInput{Bucket: &s.bucket, Key: &key})
+	if err != nil { return nil, err }
+	return out.Body, nil
 }
 type SignedRequest struct {
 	URL       string              `json:"url"`

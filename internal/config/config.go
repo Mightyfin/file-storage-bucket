@@ -11,7 +11,8 @@ type Config struct {
 	Environment, HTTPAddress, DatabaseURL, AuthMode, OIDCIssuer, OIDCAudience string
 	PartyBaseURL, PartyTokenURL, PartyClientID, PartyClientSecret             string
 	S3Endpoint, S3Region, S3AccessKey, S3SecretKey, S3Bucket                  string
-	UploadTTL, DownloadTTL                                                    time.Duration
+	ClamAddress                                                               string
+	UploadTTL, DownloadTTL, ScanInterval                                      time.Duration
 }
 
 func Load() (Config, error) {
@@ -23,7 +24,7 @@ func Load() (Config, error) {
 		PartyClientID: strings.TrimSpace(os.Getenv("DOCUMENT_PARTY_CLIENT_ID")), PartyClientSecret: strings.TrimSpace(os.Getenv("DOCUMENT_PARTY_CLIENT_SECRET")),
 		S3Endpoint: strings.TrimRight(strings.TrimSpace(os.Getenv("DOCUMENT_S3_ENDPOINT")), "/"), S3Region: value("DOCUMENT_S3_REGION", "zm-lusaka-1"),
 		S3AccessKey: strings.TrimSpace(os.Getenv("DOCUMENT_S3_ACCESS_KEY")), S3SecretKey: strings.TrimSpace(os.Getenv("DOCUMENT_S3_SECRET_KEY")), S3Bucket: strings.TrimSpace(os.Getenv("DOCUMENT_S3_BUCKET")),
-		UploadTTL: 15 * time.Minute, DownloadTTL: 5 * time.Minute,
+		ClamAddress: value("DOCUMENT_CLAM_ADDRESS", "clamav:3310"), UploadTTL: 15 * time.Minute, DownloadTTL: 5 * time.Minute, ScanInterval: 2 * time.Second,
 	}
 	allowed := map[string]bool{"local": true, "dev": true, "sandbox": true, "staging": true, "production": true}
 	if !allowed[c.Environment] || c.DatabaseURL == "" || c.PartyBaseURL == "" || c.S3Endpoint == "" || c.S3AccessKey == "" || c.S3SecretKey == "" || c.S3Bucket == "" {

@@ -1,6 +1,6 @@
 # MightyFin Document Service
 
-Status: **initial secure-upload slice implemented locally**
+Status: **secure upload and automatic malware-scanning slice implemented locally**
 
 This shared service owns document metadata, upload authorization, integrity verification,
 classification and controlled retrieval for every MightyFin product. PostgreSQL stores metadata;
@@ -18,8 +18,10 @@ Implemented boundaries:
 - tenant and environment isolation;
 - explicit purpose, classification, consent and source references;
 - provider-neutral S3 endpoint configuration.
+- automatic ClamAV scanning from quarantine with PostgreSQL leases and bounded retries;
+- clean-file release and infected-file rejection with append-only scan evidence.
 
-Not yet production-ready: malware scanning, content disarm, production KMS integration, legal-hold
+Not yet production-ready: content disarm, production KMS integration, legal-hold
 operations, automated retention, reviewer UI, cross-product consent decisions and multi-node
 object-store durability still require implementation and acceptance testing.
 
@@ -29,4 +31,4 @@ Local dependencies:
 infrastructure/local-development/object-storage/seaweedfs/compose.yaml
 ```
 
-The service requires its own GitHub repository before publication.
+Service repository: `Mightyfin/file-storage-bucket`.

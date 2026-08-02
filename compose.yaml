@@ -1,0 +1,41 @@
+services:
+  postgres:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_DB: documents
+      POSTGRES_USER: documents
+      POSTGRES_PASSWORD: local-documents-only
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U documents -d documents"]
+      interval: 3s
+      timeout: 3s
+      retries: 30
+    volumes: [document-postgres-data:/var/lib/postgresql/data]
+
+  migrate:
+    build: .
+    entrypoint: ["/document-migrate"]
+    environment: &runtime
+      DOCUMENT_ENVIRONMENT: local
+      DOCUMENT_HTTP_ADDRESS: ":8080"
+      DOCUMENT_DATABASE_URL: postgres://documents:local-documents-only@postgres:5432/documents?sslmode=disable
+      DOCUMENT_AUTH_MODE: disabled
+      DOCUMENT_PARTY_BASE_URL: http://host.docker.internal:18086
+      DOCUMENT_S3_ENDPOINT: http://host.docker.internal:18333
+      DOCUMENT_S3_REGION: zm-lusaka-1
+      DOCUMENT_S3_ACCESS_KEY: mightyfin-documents-local
+      DOCUMENT_S3_SECRET_KEY: local-development-only-change-me
+      DOCUMENT_S3_BUCKET: mightyfin-local-documents
+    depends_on:
+      postgres: {condition: service_healthy}
+
+  api:
+    build: .
+    environment: *runtime
+    ports: ["127.0.0.1:18088:8080"]
+    extra_hosts: ["host.docker.internal:host-gateway"]
+    depends_on:
+      migrate: {condition: service_completed_successfully}
+
+volumes:
+  document-postgres-data: {}

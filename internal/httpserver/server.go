@@ -168,7 +168,11 @@ func scope(r *http.Request, p auth.Principal) documents.Scope {
 	if cor == "" {
 		cor = "cor_missing"
 	}
-	return documents.Scope{p.TenantID, p.Environment, p.Subject, p.ApplicationID, cor}
+	// Only machine application credentials carry application_id - a human
+	// console session has none, so fall back to azp (the OAuth client the
+	// session belongs to, e.g. "efaas-console") rather than leaving this
+	// required field empty and rejecting every human-initiated upload.
+	return documents.Scope{p.TenantID, p.Environment, p.Subject, value(p.ApplicationID, p.AuthorizedParty), cor}
 }
 func decode(r *http.Request, v any) error {
 	d := json.NewDecoder(io.LimitReader(r.Body, 1<<20))

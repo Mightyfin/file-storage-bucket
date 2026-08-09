@@ -9,8 +9,8 @@ import (
 )
 
 type Principal struct {
-	Subject, TenantID, Environment, ApplicationID string
-	Scopes                                        map[string]struct{}
+	Subject, TenantID, Environment, ApplicationID, AuthorizedParty string
+	Scopes                                                         map[string]struct{}
 }
 
 func (p Principal) HasScope(v string) bool { _, ok := p.Scopes[v]; return ok }
@@ -36,11 +36,12 @@ func (v *OIDCVerifier) Verify(ctx context.Context, raw string) (Principal, error
 		return Principal{}, e
 	}
 	var c struct {
-		Subject       string `json:"sub"`
-		TenantID      string `json:"tenant_id"`
-		Environment   string `json:"environment"`
-		ApplicationID string `json:"application_id"`
-		Scope         string `json:"scope"`
+		Subject         string `json:"sub"`
+		TenantID        string `json:"tenant_id"`
+		Environment     string `json:"environment"`
+		ApplicationID   string `json:"application_id"`
+		AuthorizedParty string `json:"azp"`
+		Scope           string `json:"scope"`
 	}
 	if e = token.Claims(&c); e != nil {
 		return Principal{}, e
@@ -52,5 +53,5 @@ func (v *OIDCVerifier) Verify(ctx context.Context, raw string) (Principal, error
 	for _, x := range strings.Fields(c.Scope) {
 		s[x] = struct{}{}
 	}
-	return Principal{c.Subject, c.TenantID, c.Environment, c.ApplicationID, s}, nil
+	return Principal{c.Subject, c.TenantID, c.Environment, c.ApplicationID, c.AuthorizedParty, s}, nil
 }

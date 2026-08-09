@@ -1,6 +1,7 @@
 package documents
 
 import (
+	"bytes"
 	"context"
 	"crypto/rand"
 	"crypto/sha256"
@@ -8,6 +9,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"path/filepath"
 	"regexp"
 	"strings"
@@ -49,6 +51,7 @@ type Party interface {
 }
 type Objects interface {
 	PresignUpload(context.Context, string, string, string, int64, time.Duration) (objectstore.SignedRequest, error)
+	PutObject(context.Context, string, string, string, int64, io.Reader) error
 	Verify(context.Context, string, string, int64) error
 	PresignDownload(context.Context, string, string, time.Duration) (objectstore.SignedRequest, error)
 }
@@ -118,6 +121,40 @@ func (s *Service) getIdempotent(ctx context.Context, scope Scope, key, hash stri
 	if e != nil { return Document{}, e }
 	if storedHash != hash { return Document{}, ErrConflict }
 	return out, nil
+}
+// UploadContent lets a caller push bytes through this API instead of
+// PUTting to a presigned object-store URL directly - the presigned URL
+// only ever resolves from inside this deployment's own network, which is
+// fine for a machine credential already running there but unreachable for
+// a browser anywhere else. This reads the whole body (bounded by the size
+// already declared and validated at CreateInput time), verifies it
+// actually matches the declared SHA-256 before ever writing it to
+// storage, then reuses Complete's own verify-and-transition logic so the
+// resulting state is identical to the presigned-URL path.
+func (s *Service) UploadContent(ctx context.Context, scope Scope, id string, body io.Reader) (Document, error) {
+	out, e := s.get(ctx, scope, id)
+	if e != nil {
+		return Document{}, e
+	}
+	if out.Status != "pending_upload" {
+		return Document{}, ErrConflict
+	}
+	limited := io.LimitReader(body, out.Size+1)
+	buf, e := io.ReadAll(limited)
+	if e != nil {
+		return Document{}, e
+	}
+	if int64(len(buf)) != out.Size {
+		return Document{}, ErrConflict
+	}
+	sum := sha256.Sum256(buf)
+	if hex.EncodeToString(sum[:]) != out.SHA256 {
+		return Document{}, ErrConflict
+	}
+	if e = s.objects.PutObject(ctx, out.objectKey, out.ContentType, out.SHA256, out.Size, bytes.NewReader(buf)); e != nil {
+		return Document{}, e
+	}
+	return s.Complete(ctx, scope, id)
 }
 func (s *Service) Complete(ctx context.Context, scope Scope, id string) (Document, error) {
 	out, e := s.get(ctx, scope, id)

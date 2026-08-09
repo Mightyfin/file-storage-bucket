@@ -56,6 +56,13 @@ func (s *Store) PresignUpload(ctx context.Context, key, contentType, sha256 stri
 	}
 	return SignedRequest{r.URL, http.MethodPut, r.SignedHeader, expires}, nil
 }
+func (s *Store) PutObject(ctx context.Context, key, contentType, sha256 string, size int64, body io.Reader) error {
+	_, e := s.client.PutObject(ctx, &s3.PutObjectInput{
+		Bucket: &s.bucket, Key: &key, Body: body, ContentType: &contentType, ContentLength: &size,
+		Metadata: map[string]string{"sha256": sha256},
+	})
+	return e
+}
 func (s *Store) Verify(ctx context.Context, key, sha256 string, size int64) error {
 	h, e := s.client.HeadObject(ctx, &s3.HeadObjectInput{Bucket: &s.bucket, Key: &key})
 	if e != nil {

@@ -90,6 +90,17 @@ func New(c config.Config, l *slog.Logger, db ready, s *documents.Service, v auth
 		}
 		write(w, 202, d)
 	})
+	mux.HandleFunc("PUT /v1/documents/{id}/content", func(w http.ResponseWriter, r *http.Request) {
+		p, ok := require(w, r, "documents.write")
+		if !ok {
+			return
+		}
+		d, e := s.UploadContent(r.Context(), scope(r, p), r.PathValue("id"), http.MaxBytesReader(w, r.Body, 50<<20))
+		if handle(w, e) {
+			return
+		}
+		write(w, 202, d)
+	})
 	mux.HandleFunc("POST /v1/internal/documents/{id}/scan-result", func(w http.ResponseWriter, r *http.Request) {
 		p, ok := require(w, r, "documents.scan")
 		if !ok {

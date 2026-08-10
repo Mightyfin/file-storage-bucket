@@ -111,7 +111,7 @@ func (s *Service) Create(ctx context.Context, scope Scope, in CreateInput) (Docu
 	defer tx.Rollback(ctx)
 	var out Document
 	e = tx.QueryRow(ctx, `INSERT INTO documents(public_id,tenant_id,environment,party_id,owner_type,owner_id,source_application,source_reference,consent_reference,document_type,purpose,classification,original_filename,content_type,size_bytes,sha256_hex,bucket_name,object_key,retention_category,retain_until,upload_expires_at,created_by,idempotency_key,request_hash) VALUES($1,$2,$3,NULLIF($4,''),$5,$6,$7,NULLIF($8,''),NULLIF($9,''),$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24)
-		ON CONFLICT (tenant_id,environment,source_application,source_reference,sha256_hex) DO UPDATE
+		ON CONFLICT (tenant_id,environment,source_application,source_reference,document_type,sha256_hex) DO UPDATE
 		SET upload_expires_at=EXCLUDED.upload_expires_at,updated_at=now()
 		WHERE documents.status='pending_upload'
 		  AND documents.owner_type=EXCLUDED.owner_type

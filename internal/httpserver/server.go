@@ -73,7 +73,7 @@ func New(c config.Config, l *slog.Logger, db ready, s *documents.Service, v auth
 			problem(w, 400, "invalid_request")
 			return
 		}
-		d, u, e := s.Create(r.Context(), scope(r, p), documents.CreateInput{PartyID: b.PartyID, OwnerType:b.OwnerType, OwnerID:b.OwnerID, SourceReference: b.SourceReference, ConsentReference: b.ConsentReference, DocumentType: b.DocumentType, Purpose: b.Purpose, Classification: strings.ToUpper(b.Classification), Filename: b.Filename, ContentType: b.ContentType, Size: b.Size, SHA256: b.SHA256, RetentionCategory: b.RetentionCategory, RetainUntil: b.RetainUntil, IdempotencyKey: r.Header.Get("Idempotency-Key")})
+		d, u, e := s.Create(r.Context(), scope(r, p), documents.CreateInput{PartyID: b.PartyID, OwnerType: b.OwnerType, OwnerID: b.OwnerID, SourceReference: b.SourceReference, ConsentReference: b.ConsentReference, DocumentType: b.DocumentType, Purpose: b.Purpose, Classification: strings.ToUpper(b.Classification), Filename: b.Filename, ContentType: b.ContentType, Size: b.Size, SHA256: b.SHA256, RetentionCategory: b.RetentionCategory, RetainUntil: b.RetainUntil, IdempotencyKey: r.Header.Get("Idempotency-Key")})
 		if handle(w, e) {
 			return
 		}
@@ -188,7 +188,13 @@ func scope(r *http.Request, p auth.Principal) documents.Scope {
 func decode(r *http.Request, v any) error {
 	d := json.NewDecoder(io.LimitReader(r.Body, 1<<20))
 	d.DisallowUnknownFields()
-	return d.Decode(v)
+	if err := d.Decode(v); err != nil {
+		return err
+	}
+	if d.Decode(&struct{}{}) != io.EOF {
+		return errors.New("request body must contain exactly one JSON value")
+	}
+	return nil
 }
 func handle(w http.ResponseWriter, e error) bool {
 	if e == nil {

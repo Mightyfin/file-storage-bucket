@@ -69,7 +69,7 @@ func New(db *pgxpool.Pool, p Party, o Objects, bucket string, up, down time.Dura
 func (s *Service) Create(ctx context.Context, scope Scope, in CreateInput) (Document, objectstore.SignedRequest, error) {
 	in.Filename = filepath.Base(strings.TrimSpace(in.Filename))
 	in.SHA256 = strings.ToLower(strings.TrimSpace(in.SHA256))
-	allowedType := map[string]bool{"application/pdf": true, "image/jpeg": true, "image/png": true}
+	allowedType := map[string]bool{"application/pdf": true, "image/jpeg": true, "image/png": true, "text/csv": true}
 	allowedClass := map[string]bool{"INTERNAL": true, "CONFIDENTIAL": true, "RESTRICTED": true}
 	in.IdempotencyKey = strings.TrimSpace(in.IdempotencyKey)
 	in.OwnerType = strings.ToUpper(strings.TrimSpace(in.OwnerType))

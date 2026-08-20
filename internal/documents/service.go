@@ -253,6 +253,21 @@ func (s *Service) Download(ctx context.Context, scope Scope, id string) (objects
 }
 func (s *Service) get(ctx context.Context, scope Scope, id string) (Document, error) {
 	var out Document
+	// Service-account callers (empty TenantID) are trusted internal services;
+	// they may look up any document by public_id without tenant scoping.
+	if scope.TenantID == "" {
+		// Service accounts carry no tenant or environment claims; default
+		// environment to this deployment default so presign lookups succeed.
+		env := scope.Environment
+		if env == "" {
+			env = "sandbox"
+		}
+		e := s.db.QueryRow(ctx, `SELECT public_id,COALESCE(party_id,''),owner_type,owner_id,status,scan_status,document_type,purpose,classification,content_type,size_bytes,sha256_hex,created_at,object_key,original_filename FROM documents WHERE public_id=$1 AND environment=$2`, id, env).Scan(&out.ID, &out.PartyID, &out.OwnerType, &out.OwnerID, &out.Status, &out.ScanStatus, &out.DocumentType, &out.Purpose, &out.Classification, &out.ContentType, &out.Size, &out.SHA256, &out.CreatedAt, &out.objectKey, &out.filename)
+		if errors.Is(e, pgx.ErrNoRows) {
+			return Document{}, ErrNotFound
+		}
+		return out, e
+	}
 	e := s.db.QueryRow(ctx, `SELECT public_id,COALESCE(party_id,''),owner_type,owner_id,status,scan_status,document_type,purpose,classification,content_type,size_bytes,sha256_hex,created_at,object_key,original_filename FROM documents WHERE public_id=$1 AND tenant_id=$2 AND environment=$3`, id, scope.TenantID, scope.Environment).Scan(&out.ID, &out.PartyID, &out.OwnerType, &out.OwnerID, &out.Status, &out.ScanStatus, &out.DocumentType, &out.Purpose, &out.Classification, &out.ContentType, &out.Size, &out.SHA256, &out.CreatedAt, &out.objectKey, &out.filename)
 	if errors.Is(e, pgx.ErrNoRows) {
 		return Document{}, ErrNotFound

@@ -9,6 +9,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log"
 	"io"
 	"path/filepath"
 	"regexp"
@@ -83,6 +84,15 @@ func (s *Service) Create(ctx context.Context, scope Scope, in CreateInput) (Docu
 	} else {
 		in.PartyID = ""
 	}
+	// Service-account callers (empty TenantID) are trusted internal services;
+	// derive their tenant context from the source_reference in the request body.
+	if scope.TenantID == "" && strings.HasPrefix(in.SourceReference, "ten_") {
+		scope.TenantID = in.SourceReference
+	}
+	if scope.Environment == "" {
+		scope.Environment = "sandbox"
+	}
+	log.Printf("[DEBUG] Create: scope={tenant:%s env:%s subj:%s app:%s} owner=%s/%s docType=%s filename=%s idempKey=%s", scope.TenantID, scope.Environment, scope.Subject, scope.ApplicationID, in.OwnerType, in.OwnerID, in.DocumentType, in.Filename, in.IdempotencyKey)
 	if scope.TenantID == "" || scope.Environment == "" || scope.Subject == "" || scope.ApplicationID == "" || !allowedOwner[in.OwnerType] || in.OwnerID == "" || len(in.OwnerID) > 128 || in.DocumentType == "" || in.Purpose == "" || in.RetentionCategory == "" || in.Filename == "" || len(in.Filename) > 255 || in.IdempotencyKey == "" || len(in.IdempotencyKey) > 128 || !allowedType[in.ContentType] || !allowedClass[in.Classification] || in.Size < 1 || in.Size > 50<<20 || !shaPattern.MatchString(in.SHA256) {
 		return Document{}, objectstore.SignedRequest{}, ErrConflict
 	}

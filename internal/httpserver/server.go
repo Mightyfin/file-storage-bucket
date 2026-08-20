@@ -131,10 +131,10 @@ func New(c config.Config, l *slog.Logger, db ready, s *documents.Service, v auth
 		}
 		write(w, 200, u)
 	})
-	h := security(authenticate(c.AuthMode == "disabled", c.Environment, v, mux))
+	h := security(authenticate(c.AuthMode == "disabled", c.Environment, v, l, mux))
 	return &http.Server{Addr: c.HTTPAddress, Handler: h, ReadHeaderTimeout: 5 * time.Second, ReadTimeout: 15 * time.Second, WriteTimeout: 15 * time.Second, IdleTimeout: 60 * time.Second}
 }
-func authenticate(disabled bool, defaultEnvironment string, v auth.Verifier, next http.Handler) http.Handler {
+func authenticate(disabled bool, defaultEnvironment string, v auth.Verifier, l *slog.Logger, next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if !strings.HasPrefix(r.URL.Path, "/v1/") {
 			next.ServeHTTP(w, r)
@@ -155,6 +155,9 @@ func authenticate(disabled bool, defaultEnvironment string, v auth.Verifier, nex
 			return
 		}
 		p, e := v.Verify(r.Context(), token)
+		if e != nil {
+			l.Error("auth verify failed", "path", r.URL.Path, "error", e.Error())
+		}
 		if e != nil {
 			problem(w, 401, "unauthorized")
 			return

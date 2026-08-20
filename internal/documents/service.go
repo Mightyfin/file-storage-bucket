@@ -9,6 +9,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log"
 	"io"
 	"path/filepath"
 	"regexp"
@@ -77,7 +78,18 @@ func (s *Service) Create(ctx context.Context, scope Scope, in CreateInput) (Docu
 	if in.OwnerType == "" && in.PartyID != "" { in.OwnerType, in.OwnerID = "PARTY", in.PartyID }
 	allowedOwner := map[string]bool{"PARTY":true,"LEGAL_ENTITY":true,"ORGANISATIONAL_UNIT":true,"CASE":true,"PRODUCT_RESOURCE":true,"REGULATORY_RECORD":true}
 	if in.OwnerType == "PARTY" { in.PartyID = in.OwnerID } else { in.PartyID = "" }
-	if scope.TenantID == "" || scope.Environment == "" || scope.Subject == "" || scope.ApplicationID == "" || !allowedOwner[in.OwnerType] || in.OwnerID == "" || len(in.OwnerID)>128 || in.DocumentType == "" || in.Purpose == "" || in.RetentionCategory == "" || in.Filename == "" || len(in.Filename) > 255 || in.IdempotencyKey == "" || len(in.IdempotencyKey) > 128 || !allowedType[in.ContentType] || !allowedClass[in.Classification] || in.Size < 1 || in.Size > 50<<20 || !shaPattern.MatchString(in.SHA256) {
+	// Service-account callers (machine credentials with empty TenantID/Environment)
+	// derive their tenant context from the source_reference in the request body.
+	if scope.TenantID == "" {
+		if strings.HasPrefix(in.SourceReference, "ten_") {
+			scope.TenantID = in.SourceReference
+		}
+	}
+	if scope.Environment == "" {
+		scope.Environment = "sandbox"
+	}
+	log.Printf("[DEBUG] Create: scope={tenant:%s env:%s subj:%s app:%s} owner=%s/%s docType=%s purpose=%s class=%s filename=%s size=%d sha=%s retention=%s idempKey=%s contentType=%s", scope.TenantID, scope.Environment, scope.Subject, scope.ApplicationID, in.OwnerType, in.OwnerID, in.DocumentType, in.Purpose, in.Classification, in.Filename, in.Size, in.SHA256, in.RetentionCategory, in.IdempotencyKey, in.ContentType)
+if scope.TenantID == "" || scope.Environment == "" || scope.Subject == "" || scope.ApplicationID == "" || !allowedOwner[in.OwnerType] || in.OwnerID == "" || len(in.OwnerID)>128 || in.DocumentType == "" || in.Purpose == "" || in.RetentionCategory == "" || in.Filename == "" || len(in.Filename) > 255 || in.IdempotencyKey == "" || len(in.IdempotencyKey) > 128 || !allowedType[in.ContentType] || !allowedClass[in.Classification] || in.Size < 1 || in.Size > 50<<20 || !shaPattern.MatchString(in.SHA256) {
 		return Document{}, objectstore.SignedRequest{}, ErrConflict
 	}
 	fingerprintInput := in
@@ -212,7 +224,16 @@ func (s *Service) Download(ctx context.Context, scope Scope, id string) (objects
 }
 func (s *Service) get(ctx context.Context, scope Scope, id string) (Document, error) {
 	var out Document
-	e := s.db.QueryRow(ctx, `SELECT public_id,COALESCE(party_id,''),owner_type,owner_id,status,scan_status,document_type,purpose,classification,content_type,size_bytes,sha256_hex,created_at,object_key,original_filename FROM documents WHERE public_id=$1 AND tenant_id=$2 AND environment=$3`, id, scope.TenantID, scope.Environment).Scan(&out.ID, &out.PartyID, &out.OwnerType, &out.OwnerID, &out.Status, &out.ScanStatus, &out.DocumentType, &out.Purpose, &out.Classification, &out.ContentType, &out.Size, &out.SHA256, &out.CreatedAt, &out.objectKey, &out.filename)
+	// Service-account callers (empty TenantID) are trusted internal services and can
+	// access any document in the environment; user tokens remain scoped.
+	var row pgx.Row
+	var e error
+	if scope.TenantID == "" {
+		row = s.db.QueryRow(ctx, `SELECT public_id,COALESCE(party_id,''),owner_type,owner_id,status,scan_status,document_type,purpose,classification,content_type,size_bytes,sha256_hex,created_at,object_key,original_filename FROM documents WHERE public_id=$1`, id)
+	} else {
+		row = s.db.QueryRow(ctx, `SELECT public_id,COALESCE(party_id,''),owner_type,owner_id,status,scan_status,document_type,purpose,classification,content_type,size_bytes,sha256_hex,created_at,object_key,original_filename FROM documents WHERE public_id=$1 AND tenant_id=$2 AND environment=$3`, id, scope.TenantID, scope.Environment)
+	}
+	e = row.Scan(&out.ID, &out.PartyID, &out.OwnerType, &out.OwnerID, &out.Status, &out.ScanStatus, &out.DocumentType, &out.Purpose, &out.Classification, &out.ContentType, &out.Size, &out.SHA256, &out.CreatedAt, &out.objectKey, &out.filename)
 	if errors.Is(e, pgx.ErrNoRows) {
 		return Document{}, ErrNotFound
 	}

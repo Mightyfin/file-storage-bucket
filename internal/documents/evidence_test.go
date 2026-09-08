@@ -34,13 +34,27 @@ func TestEvidenceIsolationAndAudit(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer db.Close()
-	_, err = db.Exec(ctx, `CREATE TEMP TABLE documents(id int,public_id text,tenant_id text,environment text,party_id text,owner_type text,owner_id text,status text,scan_status text,document_type text,purpose text,classification text,content_type text,size_bytes bigint,sha256_hex text,created_at timestamptz);
+	_, err = db.Exec(ctx, `CREATE TEMP TABLE documents(id int,public_id text,tenant_id text,environment text,party_id text,owner_type text,owner_id text,status text,scan_status text,document_type text,purpose text,classification text,content_type text,size_bytes bigint,sha256_hex text,created_at timestamptz,source_reference text,object_key text,original_filename text);
  CREATE TEMP TABLE document_audit_events(document_id int,action text,actor_subject text,actor_application text,correlation_id text);
- INSERT INTO documents VALUES(1,'doc','tenant-a','sandbox','party-a','PARTY','party-a','available','clean','BANK_STATEMENT','credit','RESTRICTED','application/pdf',10,repeat('a',64),now());`)
+ INSERT INTO documents VALUES(1,'doc','tenant-a','sandbox','party-a','PARTY','party-a','available','clean','BANK_STATEMENT','credit','RESTRICTED','application/pdf',10,repeat('a',64),now(),'case-a','object-a','fixture.pdf');`)
 	if err != nil {
 		t.Fatal(err)
 	}
 	s := &Service{db: db}
+	for _, tc := range []struct {
+		tenant, env, party, application string
+		allowed                         bool
+	}{{"tenant-a", "sandbox", "party-a", "case-a", true}, {"tenant-b", "sandbox", "party-a", "case-a", false}, {"tenant-a", "production", "party-a", "case-a", false}, {"tenant-a", "sandbox", "party-b", "case-a", false}, {"tenant-a", "sandbox", "party-a", "case-b", false}} {
+		sc := Scope{TenantID: tc.tenant, Environment: tc.env, Subject: "actor", ApplicationID: "console"}
+		_, checkErr := s.CaseUpload(ctx, sc, tc.application, tc.party, "doc")
+		if (checkErr == nil) != tc.allowed {
+			t.Fatalf("case upload isolation: %+v %v", tc, checkErr)
+		}
+		items, checkErr := s.CaseUploads(ctx, sc, tc.application, tc.party, "")
+		if checkErr != nil || (len(items) == 1) != tc.allowed {
+			t.Fatalf("case list isolation: %+v %v", tc, checkErr)
+		}
+	}
 	digest := strings.Repeat("a", 64)
 	for _, tc := range []struct {
 		name, tenant, env, party, hash string

@@ -22,6 +22,7 @@ type ready interface{ Ping(context.Context) error }
 
 func New(c config.Config, l *slog.Logger, db ready, s *documents.Service, v auth.Verifier) *http.Server {
 	mux := http.NewServeMux()
+	mux.HandleFunc("POST /v1/documents/{id}/evidence-verification", evidenceHandler(s, c.Environment))
 	mux.HandleFunc("GET /", func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/" {
 			problem(w, http.StatusNotFound, "not_found")
@@ -203,7 +204,9 @@ func handle(w http.ResponseWriter, e error) bool {
 	if e == nil {
 		return false
 	}
-	if errors.Is(e, documents.ErrNotFound) {
+	if errors.Is(e, documents.ErrEvidenceScope) {
+		problem(w, 403, "explicit_evidence_scope_required")
+	} else if errors.Is(e, documents.ErrNotFound) {
 		problem(w, 404, "not_found")
 	} else if errors.Is(e, documents.ErrConflict) {
 		problem(w, 409, "conflict")

@@ -56,7 +56,10 @@ func TestServiceUploadCompletesStoredTenantScope(t *testing.T) {
 	if objects.puts != 0 {
 		t.Fatal("foreign tenant wrote bytes")
 	}
-	out, err := s.UploadContent(ctx, Scope{Subject: "service", ApplicationID: "document-party-client", CorrelationID: "test"}, "doc", strings.NewReader("test"))
+	if _, err = s.UploadContent(ctx, Scope{Environment: "sandbox", Subject: "untrusted-service", ApplicationID: "unknown"}, "doc", strings.NewReader("test")); err != ErrNotFound || objects.puts != 0 {
+		t.Fatal("untrusted tenantless upload accepted", err)
+	}
+	out, err := s.UploadContent(ctx, Scope{Subject: "service", ApplicationID: "document-party-client", CorrelationID: "test", Environment: "sandbox", TrustedInternal: true}, "doc", strings.NewReader("test"))
 	if err != nil || out.Status != "quarantined" {
 		t.Fatal(out, err)
 	}

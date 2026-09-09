@@ -45,7 +45,7 @@ func main() {
 	}
 	var verifier auth.Verifier
 	if c.AuthMode == "oidc" {
-		verifier, e = auth.New(ctx, c.OIDCIssuer, c.OIDCAudience, c.Environment)
+		verifier, e = auth.New(ctx, c.OIDCIssuer, c.OIDCAudience, c.Environment, c.TrustedInternalClients...)
 		if e != nil {
 			l.Error("OIDC unavailable", "error", e)
 			os.Exit(1)

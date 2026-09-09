@@ -10,7 +10,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"log"
 	"path/filepath"
 	"regexp"
 	"strings"
@@ -25,7 +24,10 @@ var ErrNotFound = errors.New("document not found")
 var ErrConflict = errors.New("document conflict")
 var shaPattern = regexp.MustCompile(`^[0-9a-f]{64}$`)
 
-type Scope struct{ TenantID, Environment, Subject, ApplicationID, CorrelationID string }
+type Scope struct {
+	TenantID, Environment, Subject, ApplicationID, CorrelationID string
+	TrustedInternal                                              bool
+}
 type CreateInput struct {
 	PartyID, OwnerType, OwnerID, SourceReference, ConsentReference, DocumentType, Purpose, Classification, Filename, ContentType, SHA256, RetentionCategory, IdempotencyKey string
 	Size                                                                                                                                                                    int64
@@ -85,15 +87,11 @@ func (s *Service) Create(ctx context.Context, scope Scope, in CreateInput) (Docu
 	} else {
 		in.PartyID = ""
 	}
-	// Service-account callers (empty TenantID) are trusted internal services;
-	// derive their tenant context from the source_reference in the request body.
-	if scope.TenantID == "" && strings.HasPrefix(in.SourceReference, "ten_") {
+	// Only explicitly allowlisted internal callers may derive a tenant from
+	// their integration reference. An absent tenant claim is not authority.
+	if scope.TrustedInternal && scope.TenantID == "" && strings.HasPrefix(in.SourceReference, "ten_") {
 		scope.TenantID = in.SourceReference
 	}
-	if scope.Environment == "" {
-		scope.Environment = "sandbox"
-	}
-	log.Printf("[DEBUG] Create: scope={tenant:%s env:%s subj:%s app:%s} owner=%s/%s docType=%s filename=%s idempKey=%s", scope.TenantID, scope.Environment, scope.Subject, scope.ApplicationID, in.OwnerType, in.OwnerID, in.DocumentType, in.Filename, in.IdempotencyKey)
 	if scope.TenantID == "" || scope.Environment == "" || scope.Subject == "" || scope.ApplicationID == "" || !allowedOwner[in.OwnerType] || in.OwnerID == "" || len(in.OwnerID) > 128 || in.DocumentType == "" || in.Purpose == "" || in.RetentionCategory == "" || in.Filename == "" || len(in.Filename) > 255 || in.IdempotencyKey == "" || len(in.IdempotencyKey) > 128 || !allowedType[in.ContentType] || !allowedClass[in.Classification] || in.Size < 1 || in.Size > 50<<20 || !shaPattern.MatchString(in.SHA256) {
 		return Document{}, objectstore.SignedRequest{}, ErrConflict
 	}
@@ -262,15 +260,12 @@ func (s *Service) Download(ctx context.Context, scope Scope, id string) (objects
 }
 func (s *Service) get(ctx context.Context, scope Scope, id string) (Document, error) {
 	var out Document
-	// Service-account callers (empty TenantID) are trusted internal services;
-	// they may look up any document by public_id without tenant scoping.
+	// Legacy internal lookups require an explicit verified allowlist grant.
 	if scope.TenantID == "" {
-		// Service accounts carry no tenant or environment claims; default
-		// environment to this deployment default so presign lookups succeed.
-		env := scope.Environment
-		if env == "" {
-			env = "sandbox"
+		if !scope.TrustedInternal || scope.Environment == "" {
+			return Document{}, ErrNotFound
 		}
+		env := scope.Environment
 		e := s.db.QueryRow(ctx, `SELECT public_id,COALESCE(party_id,''),owner_type,owner_id,status,scan_status,document_type,purpose,classification,content_type,size_bytes,sha256_hex,created_at,object_key,original_filename,tenant_id,environment FROM documents WHERE public_id=$1 AND environment=$2`, id, env).Scan(&out.ID, &out.PartyID, &out.OwnerType, &out.OwnerID, &out.Status, &out.ScanStatus, &out.DocumentType, &out.Purpose, &out.Classification, &out.ContentType, &out.Size, &out.SHA256, &out.CreatedAt, &out.objectKey, &out.filename, &out.tenantID, &out.environment)
 		if errors.Is(e, pgx.ErrNoRows) {
 			return Document{}, ErrNotFound
@@ -283,6 +278,26 @@ func (s *Service) get(ctx context.Context, scope Scope, id string) (Document, er
 	}
 	return out, e
 }
+
+// Metadata exposes readiness and ownership, never object keys or signed URLs.
+func (s *Service) Metadata(ctx context.Context, scope Scope, id string) (DocumentMetadata, error) {
+	d, err := s.get(ctx, scope, id)
+	if err != nil {
+		return DocumentMetadata{}, err
+	}
+	tenant, environment := scope.TenantID, scope.Environment
+	if tenant == "" {
+		tenant, environment = d.tenantID, d.environment
+	}
+	return DocumentMetadata{Document: d, TenantID: tenant, Environment: environment}, nil
+}
+
+type DocumentMetadata struct {
+	Document    Document `json:"document"`
+	TenantID    string   `json:"tenant_id"`
+	Environment string   `json:"environment"`
+}
+
 func newID(prefix string) string {
 	var b [16]byte
 	if _, e := rand.Read(b[:]); e != nil {

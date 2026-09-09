@@ -41,6 +41,17 @@ func TestEvidenceIsolationAndAudit(t *testing.T) {
 		t.Fatal(err)
 	}
 	s := &Service{db: db}
+	for _, sc := range []Scope{{TenantID: "tenant-a", Environment: "sandbox"}, {Environment: "sandbox", TrustedInternal: true}} {
+		metadata, e := s.Metadata(ctx, sc, "doc")
+		if e != nil || metadata.TenantID != "tenant-a" || metadata.Environment != "sandbox" || metadata.Document.ScanStatus != "clean" {
+			t.Fatal("metadata scope", metadata, e)
+		}
+	}
+	for _, sc := range []Scope{{TenantID: "tenant-b", Environment: "sandbox"}, {TenantID: "tenant-a", Environment: "production"}, {Environment: "sandbox"}, {TrustedInternal: true}} {
+		if _, e := s.Metadata(ctx, sc, "doc"); !errors.Is(e, ErrNotFound) {
+			t.Fatal("metadata isolation", e)
+		}
+	}
 	for _, tc := range []struct {
 		tenant, env, party, application string
 		allowed                         bool

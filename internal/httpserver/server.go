@@ -24,6 +24,18 @@ func New(c config.Config, l *slog.Logger, db ready, s *documents.Service, v auth
 	mux := http.NewServeMux()
 	registerCaseRoutes(mux, s, c.DecisionEngineBaseURL, c.Environment)
 	mux.HandleFunc("POST /v1/documents/{id}/evidence-verification", evidenceHandler(s, c.Environment))
+	mux.HandleFunc("GET /v1/documents/{id}/metadata", func(w http.ResponseWriter, r *http.Request) {
+		p, ok := require(w, r, "documents.read")
+		if !ok {
+			return
+		}
+		metadata, err := s.Metadata(r.Context(), scope(r, p), r.PathValue("id"))
+		if handle(w, err) {
+			return
+		}
+		w.Header().Set("Cache-Control", "no-store")
+		write(w, 200, metadata)
+	})
 	mux.HandleFunc("GET /", func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/" {
 			problem(w, http.StatusNotFound, "not_found")
@@ -188,7 +200,7 @@ func scope(r *http.Request, p auth.Principal) documents.Scope {
 	// console session has none, so fall back to azp (the OAuth client the
 	// session belongs to, e.g. "efaas-console") rather than leaving this
 	// required field empty and rejecting every human-initiated upload.
-	return documents.Scope{p.TenantID, p.Environment, p.Subject, value(p.ApplicationID, p.AuthorizedParty), cor}
+	return documents.Scope{TenantID: p.TenantID, Environment: p.Environment, Subject: p.Subject, ApplicationID: value(p.ApplicationID, p.AuthorizedParty), CorrelationID: cor, TrustedInternal: p.TrustedInternal}
 }
 func decode(r *http.Request, v any) error {
 	d := json.NewDecoder(io.LimitReader(r.Body, 1<<20))

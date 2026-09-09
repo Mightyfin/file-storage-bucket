@@ -8,6 +8,7 @@ import (
 )
 
 type Config struct {
+	TrustedInternalClients                                                    []string
 	DecisionEngineBaseURL                                                     string
 	Environment, HTTPAddress, DatabaseURL, AuthMode, OIDCIssuer, OIDCAudience string
 	PartyBaseURL, PartyTokenURL, PartyClientID, PartyClientSecret             string
@@ -18,8 +19,9 @@ type Config struct {
 
 func Load() (Config, error) {
 	c := Config{
-		DecisionEngineBaseURL: strings.TrimRight(strings.TrimSpace(os.Getenv("DOCUMENT_DECISION_ENGINE_BASE_URL")), "/"),
-		Environment:           value("DOCUMENT_ENVIRONMENT", "local"), HTTPAddress: value("DOCUMENT_HTTP_ADDRESS", ":8080"),
+		TrustedInternalClients: strings.Split(os.Getenv("DOCUMENT_TRUSTED_INTERNAL_CLIENTS"), ","),
+		DecisionEngineBaseURL:  strings.TrimRight(strings.TrimSpace(os.Getenv("DOCUMENT_DECISION_ENGINE_BASE_URL")), "/"),
+		Environment:            value("DOCUMENT_ENVIRONMENT", "local"), HTTPAddress: value("DOCUMENT_HTTP_ADDRESS", ":8080"),
 		DatabaseURL: strings.TrimSpace(os.Getenv("DOCUMENT_DATABASE_URL")), AuthMode: value("DOCUMENT_AUTH_MODE", "oidc"),
 		OIDCIssuer: strings.TrimRight(strings.TrimSpace(os.Getenv("DOCUMENT_OIDC_ISSUER")), "/"), OIDCAudience: strings.TrimSpace(os.Getenv("DOCUMENT_OIDC_AUDIENCE")),
 		PartyBaseURL: strings.TrimRight(strings.TrimSpace(os.Getenv("DOCUMENT_PARTY_BASE_URL")), "/"), PartyTokenURL: strings.TrimSpace(os.Getenv("DOCUMENT_PARTY_TOKEN_URL")),

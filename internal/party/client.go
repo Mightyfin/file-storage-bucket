@@ -53,7 +53,8 @@ func (c *Client) Exists(ctx context.Context, tenant, environment, id string) err
 		return fmt.Errorf("party status %d", resp.StatusCode)
 	}
 	var out struct {
-		PartyID string `json:"party_id"`
+		PartyID  string `json:"party_id"`
+		LegacyID string `json:"id"`
 	}
 	data, e := io.ReadAll(io.LimitReader(resp.Body, (1<<20)+1))
 	if e != nil || len(data) > 1<<20 {
@@ -62,7 +63,9 @@ func (c *Client) Exists(ctx context.Context, tenant, environment, id string) err
 	if e = json.Unmarshal(data, &out); e != nil {
 		return e
 	}
-	if out.PartyID != id {
+	// Older deployed Party releases use id. Accept either exact contract during
+	// rollout, but never accept conflicting identities in a mixed response.
+	if (out.PartyID == "" && out.LegacyID == "") || (out.PartyID != "" && out.PartyID != id) || (out.LegacyID != "" && out.LegacyID != id) {
 		return fmt.Errorf("party mismatch")
 	}
 	return nil

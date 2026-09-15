@@ -8,7 +8,7 @@ import (
 )
 
 func TestExistsUsesCanonicalPartyContract(t *testing.T) {
-	for _, body := range []string{`{"party_id":"pty_one","status":"provisional"}`, `{"id":"pty_one"}`, `{"party_id":"other"}`, `{"party_id":"pty_one"} {}`} {
+	for _, body := range []string{`{"party_id":"pty_one","status":"provisional"}`, `{"id":"pty_one"}`, `{"party_id":"pty_one","id":"other"}`, `{"party_id":"other"}`, `{"party_id":"pty_one"} {}`} {
 		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			if r.URL.Path != "/v1/parties/pty_one" || r.Header.Get("X-Acting-Tenant-Id") != "green" || r.Header.Get("X-Acting-Environment") != "sandbox" {
 				t.Error("lost lookup scope")
@@ -17,7 +17,7 @@ func TestExistsUsesCanonicalPartyContract(t *testing.T) {
 		}))
 		c := &Client{base: srv.URL, http: srv.Client()}
 		err := c.Exists(context.Background(), "green", "sandbox", "pty_one")
-		if (err == nil) != (body == `{"party_id":"pty_one","status":"provisional"}`) {
+		if (err == nil) != (body == `{"party_id":"pty_one","status":"provisional"}` || body == `{"id":"pty_one"}`) {
 			t.Fatal(body, err)
 		}
 		srv.Close()

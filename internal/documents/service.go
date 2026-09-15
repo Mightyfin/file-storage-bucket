@@ -29,7 +29,8 @@ type Scope struct {
 	TenantID, Environment, Subject, ApplicationID, CorrelationID string
 	// PaymentReference is set only by the authenticated payment access resolver.
 	// Generic document routes never populate it from caller fields or headers.
-	PaymentReference string
+	PaymentReference   string
+	StatementReference string
 }
 type CreateInput struct {
 	PartyID, OwnerType, OwnerID, SourceReference, ConsentReference, DocumentType, Purpose, Classification, Filename, ContentType, SHA256, RetentionCategory, IdempotencyKey string
@@ -75,6 +76,9 @@ func New(db *pgxpool.Pool, p Party, o Objects, bucket string, up, down time.Dura
 }
 func (s *Service) Create(ctx context.Context, scope Scope, in CreateInput) (Document, objectstore.SignedRequest, error) {
 	if in.Purpose == "manual_bank_payment" && (scope.PaymentReference == "" || scope.PaymentReference != in.SourceReference) {
+		return Document{}, objectstore.SignedRequest{}, ErrEvidenceScope
+	}
+	if in.Purpose == "manual_bank_statement" && (scope.StatementReference == "" || scope.StatementReference != in.SourceReference) {
 		return Document{}, objectstore.SignedRequest{}, ErrEvidenceScope
 	}
 	in.Filename = filepath.Base(strings.TrimSpace(in.Filename))

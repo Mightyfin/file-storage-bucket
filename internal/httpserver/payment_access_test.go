@@ -84,3 +84,23 @@ func TestTenantCannotUseManualPaymentDocuments(t *testing.T) {
 		t.Fatal("tenant granted staff document access", w.Code)
 	}
 }
+
+func TestStatementGrantUsesSeparateOwnerPathAndScope(t *testing.T) {
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/v1/internal/manual-payments/mpay_one/statement-document-access" || r.Header.Get("Authorization") != "Bearer staff" {
+			t.Error("statement grant escaped owner route")
+		}
+		json.NewEncoder(w).Encode(paymentGrant{PaymentID: "mpay_one", TenantID: "green", Environment: "sandbox", PartyID: "party_one", Actor: "staff_one", Intent: "upload"})
+	}))
+	defer upstream.Close()
+	r := httptest.NewRequest("POST", "/upload", nil)
+	r.SetPathValue("tenant", "green")
+	r.SetPathValue("payment", "mpay_one")
+	r.Header.Set("Authorization", "Bearer staff")
+	r = r.WithContext(context.WithValue(r.Context(), principalKey, auth.Principal{Subject: "staff_one", Environment: "sandbox", AuthorizedParty: "ops"}))
+	w := httptest.NewRecorder()
+	sc, _, ok := authorizeBankEvidence(w, r, upstream.URL, "sandbox", "upload", true)
+	if !ok || sc.StatementReference != "mpay_one" || sc.PaymentReference != "" {
+		t.Fatal("statement reused receipt grant", sc, w.Code)
+	}
+}

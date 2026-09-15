@@ -113,4 +113,25 @@ func TestEvidenceIsolationAndAudit(t *testing.T) {
 	if _, err = s.get(ctx, Scope{Environment: "sandbox", Subject: "legacy-service", ApplicationID: "service"}, "doc"); !errors.Is(err, ErrNotFound) {
 		t.Fatal("legacy service bypassed payment permission", err)
 	}
+	if _, err = db.Exec(ctx, `UPDATE documents SET purpose='manual_bank_statement'`); err != nil {
+		t.Fatal(err)
+	}
+	for _, sc := range []Scope{
+		{TenantID: "tenant-a", Environment: "sandbox", Subject: "staff", ApplicationID: "console"},
+		{TenantID: "tenant-a", Environment: "sandbox", Subject: "staff", ApplicationID: "console", PaymentReference: "mpay_one"},
+		{TenantID: "tenant-a", Environment: "sandbox", Subject: "staff", ApplicationID: "console", StatementReference: "mpay_other"},
+		{TenantID: "tenant-a", Environment: "sandbox", Subject: "staff", ApplicationID: "console", StatementReference: "mpay_one"},
+	} {
+		allowed := sc.StatementReference == "mpay_one"
+		if _, err = s.get(ctx, sc, "doc"); (err == nil) != allowed {
+			t.Fatal("statement access escaped dedicated grant", sc, err)
+		}
+		if _, err = s.ResourceEvidence(ctx, sc, "doc", "party-a", digest, "mpay_one"); (err == nil) != allowed {
+			t.Fatal("statement proof escaped dedicated grant", err)
+		}
+		rows, e := s.CaseUploads(ctx, sc, "mpay_one", "party-a", "")
+		if e != nil || (len(rows) == 1) != allowed {
+			t.Fatal("statement listed outside dedicated grant", e)
+		}
+	}
 }

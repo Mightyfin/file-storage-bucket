@@ -15,14 +15,18 @@ type paymentQuery interface {
 // documents.read scope for the same tenant. Use the caller's transaction when
 // checking evidence, so the check and its audit share the row lock.
 func checkPaymentAccess(ctx context.Context, q paymentQuery, sc Scope, d Document) error {
-	if d.Purpose != "manual_bank_payment" {
+	if d.Purpose != "manual_bank_payment" && d.Purpose != "manual_bank_statement" {
 		return nil
 	}
-	if sc.PaymentReference == "" || sc.TenantID == "" || sc.Environment == "" {
+	reference := sc.PaymentReference
+	if d.Purpose == "manual_bank_statement" {
+		reference = sc.StatementReference
+	}
+	if reference == "" || sc.TenantID == "" || sc.Environment == "" {
 		return ErrNotFound
 	}
 	var found bool
-	err := q.QueryRow(ctx, `SELECT true FROM documents WHERE public_id=$1 AND tenant_id=$2 AND environment=$3 AND source_reference=$4`, d.ID, sc.TenantID, sc.Environment, sc.PaymentReference).Scan(&found)
+	err := q.QueryRow(ctx, `SELECT true FROM documents WHERE public_id=$1 AND tenant_id=$2 AND environment=$3 AND source_reference=$4`, d.ID, sc.TenantID, sc.Environment, reference).Scan(&found)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return ErrNotFound
 	}

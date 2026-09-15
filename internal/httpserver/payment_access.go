@@ -27,6 +27,10 @@ type paymentGrant struct {
 // Staff access is decided by Payment Rails against the actual record and role.
 // No tenant header, file owner supplied by a browser, or platform-wide fallback.
 func authorizePayment(w http.ResponseWriter, r *http.Request, base, environment, intent string) (documents.Scope, paymentGrant, bool) {
+	return authorizeBankEvidence(w, r, base, environment, intent, false)
+}
+
+func authorizeBankEvidence(w http.ResponseWriter, r *http.Request, base, environment, intent string, statement bool) (documents.Scope, paymentGrant, bool) {
 	p, ok := r.Context().Value(principalKey).(auth.Principal)
 	tenant, payment, id := r.PathValue("tenant"), r.PathValue("payment"), r.PathValue("id")
 	digest := r.URL.Query().Get("sha256")
@@ -40,7 +44,11 @@ func authorizePayment(w http.ResponseWriter, r *http.Request, base, environment,
 		return documents.Scope{}, paymentGrant{}, false
 	}
 	body, _ := json.Marshal(map[string]string{"tenant_id": tenant, "intent": intent, "document_id": id, "sha256": digest})
-	req, err := http.NewRequestWithContext(r.Context(), "POST", strings.TrimRight(base, "/")+"/v1/internal/manual-payments/"+url.PathEscape(payment)+"/document-access", bytes.NewReader(body))
+	accessPath := "/document-access"
+	if statement {
+		accessPath = "/statement-document-access"
+	}
+	req, err := http.NewRequestWithContext(r.Context(), "POST", strings.TrimRight(base, "/")+"/v1/internal/manual-payments/"+url.PathEscape(payment)+accessPath, bytes.NewReader(body))
 	if err != nil {
 		problem(w, 503, "payment_authorization_unavailable")
 		return documents.Scope{}, paymentGrant{}, false
@@ -72,6 +80,10 @@ func authorizePayment(w http.ResponseWriter, r *http.Request, base, environment,
 	sc.TenantID = grant.TenantID
 	sc.CorrelationID = grant.PaymentID
 	sc.PaymentReference = grant.PaymentID
+	if statement {
+		sc.PaymentReference = ""
+		sc.StatementReference = grant.PaymentID
+	}
 	if sc.ApplicationID == "" {
 		problem(w, 403, "payment_access_denied")
 		return documents.Scope{}, paymentGrant{}, false
@@ -81,9 +93,23 @@ func authorizePayment(w http.ResponseWriter, r *http.Request, base, environment,
 }
 
 func registerPaymentRoutes(mux *http.ServeMux, s *documents.Service, base, environment string) {
+	registerBankEvidenceRoutes(mux, s, base, environment, false)
+	registerBankEvidenceRoutes(mux, s, base, environment, true)
+}
+
+func registerBankEvidenceRoutes(mux *http.ServeMux, s *documents.Service, base, environment string, statement bool) {
 	prefix := "/v1/manual-payments/tenants/{tenant}/payments/{payment}/documents"
+	purpose, documentType := "manual_bank_payment", "bank_payment_evidence"
+	if statement {
+		prefix = "/v1/manual-bank-statements/tenants/{tenant}/payments/{payment}/documents"
+		purpose = "manual_bank_statement"
+		documentType = "bank_statement_evidence"
+	}
+	authorize := func(w http.ResponseWriter, r *http.Request, intent string) (documents.Scope, paymentGrant, bool) {
+		return authorizeBankEvidence(w, r, base, environment, intent, statement)
+	}
 	mux.HandleFunc("POST "+prefix+"/upload-sessions", func(w http.ResponseWriter, r *http.Request) {
-		sc, g, ok := authorizePayment(w, r, base, environment, "upload")
+		sc, g, ok := authorize(w, r, "upload")
 		if !ok {
 			return
 		}
@@ -100,29 +126,36 @@ func registerPaymentRoutes(mux *http.ServeMux, s *documents.Service, base, envir
 			problem(w, 400, "invalid_request")
 			return
 		}
-		doc, _, err := s.Create(r.Context(), sc, documents.CreateInput{PartyID: g.PartyID, OwnerType: "PARTY", OwnerID: g.PartyID, SourceReference: g.PaymentID, DocumentType: "bank_payment_evidence", Purpose: "manual_bank_payment", Classification: "RESTRICTED", Filename: in.Filename, ContentType: in.ContentType, Size: in.Size, SHA256: in.SHA256, RetentionCategory: "financial_transaction", IdempotencyKey: r.Header.Get("Idempotency-Key")})
+		doc, _, err := s.Create(r.Context(), sc, documents.CreateInput{PartyID: g.PartyID, OwnerType: "PARTY", OwnerID: g.PartyID, SourceReference: g.PaymentID, DocumentType: documentType, Purpose: purpose, Classification: "RESTRICTED", Filename: in.Filename, ContentType: in.ContentType, Size: in.Size, SHA256: in.SHA256, RetentionCategory: "financial_transaction", IdempotencyKey: r.Header.Get("Idempotency-Key")})
 		if handle(w, err) {
 			return
 		}
 		write(w, 201, map[string]any{"document": doc})
 	})
 	mux.HandleFunc("GET "+prefix+"/{id}", func(w http.ResponseWriter, r *http.Request) {
-		sc, g, ok := authorizePayment(w, r, base, environment, "read")
+		sc, g, ok := authorize(w, r, "read")
 		if !ok {
 			return
 		}
 		doc, err := s.CaseUpload(r.Context(), sc, g.PaymentID, g.PartyID, g.DocumentID)
+		if err == nil && doc.Purpose != purpose {
+			err = documents.ErrNotFound
+		}
 		if handle(w, err) {
 			return
 		}
 		write(w, 200, doc)
 	})
 	mux.HandleFunc("PUT "+prefix+"/{id}/content", func(w http.ResponseWriter, r *http.Request) {
-		sc, g, ok := authorizePayment(w, r, base, environment, "upload")
+		sc, g, ok := authorize(w, r, "upload")
 		if !ok {
 			return
 		}
-		if _, err := s.CaseUpload(r.Context(), sc, g.PaymentID, g.PartyID, g.DocumentID); handle(w, err) {
+		existing, err := s.CaseUpload(r.Context(), sc, g.PaymentID, g.PartyID, g.DocumentID)
+		if err == nil && existing.Purpose != purpose {
+			err = documents.ErrNotFound
+		}
+		if handle(w, err) {
 			return
 		}
 		doc, err := s.UploadContent(r.Context(), sc, g.DocumentID, http.MaxBytesReader(w, r.Body, 50<<20))
@@ -132,11 +165,15 @@ func registerPaymentRoutes(mux *http.ServeMux, s *documents.Service, base, envir
 		write(w, 202, doc)
 	})
 	mux.HandleFunc("GET "+prefix+"/{id}/content", func(w http.ResponseWriter, r *http.Request) {
-		sc, g, ok := authorizePayment(w, r, base, environment, "download")
+		sc, g, ok := authorize(w, r, "download")
 		if !ok {
 			return
 		}
-		if _, err := s.ResourceEvidence(r.Context(), sc, g.DocumentID, g.PartyID, g.SHA256, g.PaymentID); handle(w, err) {
+		evidence, err := s.ResourceEvidence(r.Context(), sc, g.DocumentID, g.PartyID, g.SHA256, g.PaymentID)
+		if err == nil && evidence.Purpose != purpose {
+			err = documents.ErrNotFound
+		}
+		if handle(w, err) {
 			return
 		}
 		doc, body, err := s.OpenEvidence(r.Context(), sc, g.DocumentID, g.PartyID, g.SHA256)
@@ -150,11 +187,14 @@ func registerPaymentRoutes(mux *http.ServeMux, s *documents.Service, base, envir
 		io.Copy(w, io.LimitReader(body, doc.Size))
 	})
 	mux.HandleFunc("POST "+prefix+"/{id}/evidence-verification", func(w http.ResponseWriter, r *http.Request) {
-		sc, g, ok := authorizePayment(w, r, base, environment, "verify")
+		sc, g, ok := authorize(w, r, "verify")
 		if !ok {
 			return
 		}
 		doc, err := s.ResourceEvidence(r.Context(), sc, g.DocumentID, g.PartyID, g.SHA256, g.PaymentID)
+		if err == nil && doc.Purpose != purpose {
+			err = documents.ErrNotFound
+		}
 		if handle(w, err) {
 			return
 		}

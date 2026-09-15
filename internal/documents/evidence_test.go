@@ -92,4 +92,25 @@ func TestEvidenceIsolationAndAudit(t *testing.T) {
 	if err = db.QueryRow(ctx, `SELECT count(*) FROM document_audit_events WHERE actor_subject='actor' AND action='evidence_version_checked'`).Scan(&count); err != nil || count != 1 {
 		t.Fatalf("audit count=%d error=%v", count, err)
 	}
+	if _, err = db.Exec(ctx, `UPDATE documents SET purpose='manual_bank_payment',scan_status='clean',source_reference='mpay_one'`); err != nil {
+		t.Fatal(err)
+	}
+	for _, reference := range []string{"", "mpay_other", "mpay_one"} {
+		sc := Scope{TenantID: "tenant-a", Environment: "sandbox", Subject: "staff", ApplicationID: "console", PaymentReference: reference}
+		_, err = s.get(ctx, sc, "doc")
+		if (err == nil) != (reference == "mpay_one") {
+			t.Fatalf("payment metadata access %q: %v", reference, err)
+		}
+		_, err = s.ResourceEvidence(ctx, sc, "doc", "party-a", digest, "mpay_one")
+		if (err == nil) != (reference == "mpay_one") {
+			t.Fatalf("payment proof access %q: %v", reference, err)
+		}
+		rows, e := s.CaseUploads(ctx, sc, "mpay_one", "party-a", "")
+		if e != nil || (len(rows) == 1) != (reference == "mpay_one") {
+			t.Fatalf("payment list access %q: %v", reference, e)
+		}
+	}
+	if _, err = s.get(ctx, Scope{Environment: "sandbox", Subject: "legacy-service", ApplicationID: "service"}, "doc"); !errors.Is(err, ErrNotFound) {
+		t.Fatal("legacy service bypassed payment permission", err)
+	}
 }

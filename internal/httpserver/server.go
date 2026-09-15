@@ -22,6 +22,7 @@ type ready interface{ Ping(context.Context) error }
 
 func New(c config.Config, l *slog.Logger, db ready, s *documents.Service, v auth.Verifier) *http.Server {
 	mux := http.NewServeMux()
+	registerPaymentRoutes(mux, s, c.PaymentRailsBaseURL, c.Environment)
 	registerCaseRoutes(mux, s, c.DecisionEngineBaseURL, c.Environment)
 	mux.HandleFunc("POST /v1/documents/{id}/evidence-verification", evidenceHandler(s, c.Environment))
 	mux.HandleFunc("GET /", func(w http.ResponseWriter, r *http.Request) {

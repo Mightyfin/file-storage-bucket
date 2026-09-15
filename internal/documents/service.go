@@ -25,7 +25,12 @@ var ErrNotFound = errors.New("document not found")
 var ErrConflict = errors.New("document conflict")
 var shaPattern = regexp.MustCompile(`^[0-9a-f]{64}$`)
 
-type Scope struct{ TenantID, Environment, Subject, ApplicationID, CorrelationID string }
+type Scope struct {
+	TenantID, Environment, Subject, ApplicationID, CorrelationID string
+	// PaymentReference is set only by the authenticated payment access resolver.
+	// Generic document routes never populate it from caller fields or headers.
+	PaymentReference string
+}
 type CreateInput struct {
 	PartyID, OwnerType, OwnerID, SourceReference, ConsentReference, DocumentType, Purpose, Classification, Filename, ContentType, SHA256, RetentionCategory, IdempotencyKey string
 	Size                                                                                                                                                                    int64
@@ -69,6 +74,9 @@ func New(db *pgxpool.Pool, p Party, o Objects, bucket string, up, down time.Dura
 	return &Service{db, p, o, bucket, up, down}
 }
 func (s *Service) Create(ctx context.Context, scope Scope, in CreateInput) (Document, objectstore.SignedRequest, error) {
+	if in.Purpose == "manual_bank_payment" && (scope.PaymentReference == "" || scope.PaymentReference != in.SourceReference) {
+		return Document{}, objectstore.SignedRequest{}, ErrEvidenceScope
+	}
 	in.Filename = filepath.Base(strings.TrimSpace(in.Filename))
 	in.SHA256 = strings.ToLower(strings.TrimSpace(in.SHA256))
 	allowedType := map[string]bool{"application/pdf": true, "image/jpeg": true, "image/png": true, "text/csv": true}
@@ -275,11 +283,17 @@ func (s *Service) get(ctx context.Context, scope Scope, id string) (Document, er
 		if errors.Is(e, pgx.ErrNoRows) {
 			return Document{}, ErrNotFound
 		}
+		if e == nil {
+			e = checkPaymentAccess(ctx, s.db, scope, out)
+		}
 		return out, e
 	}
 	e := s.db.QueryRow(ctx, `SELECT public_id,COALESCE(party_id,''),owner_type,owner_id,status,scan_status,document_type,purpose,classification,content_type,size_bytes,sha256_hex,created_at,object_key,original_filename FROM documents WHERE public_id=$1 AND tenant_id=$2 AND environment=$3`, id, scope.TenantID, scope.Environment).Scan(&out.ID, &out.PartyID, &out.OwnerType, &out.OwnerID, &out.Status, &out.ScanStatus, &out.DocumentType, &out.Purpose, &out.Classification, &out.ContentType, &out.Size, &out.SHA256, &out.CreatedAt, &out.objectKey, &out.filename)
 	if errors.Is(e, pgx.ErrNoRows) {
 		return Document{}, ErrNotFound
+	}
+	if e == nil {
+		e = checkPaymentAccess(ctx, s.db, scope, out)
 	}
 	return out, e
 }

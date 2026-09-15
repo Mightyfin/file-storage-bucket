@@ -47,6 +47,9 @@ func (s *Service) verifyEvidence(ctx context.Context, scope Scope, id, partyID, 
 	if err != nil {
 		return Document{}, err
 	}
+	if err = checkPaymentAccess(ctx, tx, scope, d); err != nil {
+		return Document{}, err
+	}
 	if d.Status != "available" || d.ScanStatus != "clean" || d.SHA256 != digest {
 		return Document{}, ErrConflict
 	}

@@ -8,6 +8,7 @@ import (
 )
 
 type Config struct {
+	PaymentRailsBaseURL                                                       string
 	DecisionEngineBaseURL                                                     string
 	Environment, HTTPAddress, DatabaseURL, AuthMode, OIDCIssuer, OIDCAudience string
 	PartyBaseURL, PartyTokenURL, PartyClientID, PartyClientSecret             string
@@ -18,6 +19,7 @@ type Config struct {
 
 func Load() (Config, error) {
 	c := Config{
+		PaymentRailsBaseURL:   strings.TrimRight(strings.TrimSpace(os.Getenv("DOCUMENT_PAYMENT_RAILS_BASE_URL")), "/"),
 		DecisionEngineBaseURL: strings.TrimRight(strings.TrimSpace(os.Getenv("DOCUMENT_DECISION_ENGINE_BASE_URL")), "/"),
 		Environment:           value("DOCUMENT_ENVIRONMENT", "local"), HTTPAddress: value("DOCUMENT_HTTP_ADDRESS", ":8080"),
 		DatabaseURL: strings.TrimSpace(os.Getenv("DOCUMENT_DATABASE_URL")), AuthMode: value("DOCUMENT_AUTH_MODE", "oidc"),

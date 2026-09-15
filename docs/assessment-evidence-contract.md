@@ -9,6 +9,14 @@ No permissions are automatically granted by this change.
 
 Body: `{"party_id":"party_...","sha256":"<64 lowercase hex characters>"}`.
 
+For payment/case-specific attachments, include `resource_reference` with the
+owning record ID. It must match the document's `source_reference` as well as the
+party, tenant, environment, digest and clean status in the same locked lookup.
+The response echoes `resource_reference` only after that check. An empty supplied
+reference is rejected. Old callers may omit it; payment verifiers must require
+it and must reject a legacy response without the exact binding. Resource context
+must come from the authorized owning service, not an arbitrary upload claim.
+
 The owning application service must derive the party from its authorised case,
 not blindly pass through a browser-supplied party id. This endpoint verifies only
 PARTY-owned documents: correct tenant, environment, owner and immutable digest;

@@ -56,6 +56,13 @@ func TestEvidenceIsolationAndAudit(t *testing.T) {
 		}
 	}
 	digest := strings.Repeat("a", 64)
+	resourceScope := Scope{TenantID: "tenant-a", Environment: "sandbox", Subject: "resource-reviewer", ApplicationID: "client"}
+	for _, ref := range []string{"case-a", "wrong-payment", ""} {
+		_, err := s.ResourceEvidence(ctx, resourceScope, "doc", "party-a", digest, ref)
+		if (err == nil) != (ref == "case-a") {
+			t.Fatalf("resource binding %q: %v", ref, err)
+		}
+	}
 	for _, tc := range []struct {
 		name, tenant, env, party, hash string
 		want                           error

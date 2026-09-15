@@ -21,7 +21,7 @@ type Client struct {
 }
 
 func New(ctx context.Context, base, tokenURL, id, secret string, local bool) (*Client, error) {
-	h := &http.Client{Timeout: 5 * time.Second}
+	h := &http.Client{Timeout: 5 * time.Second, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
 	if tokenURL != "" || id != "" || secret != "" {
 		if tokenURL == "" || id == "" || secret == "" {
 			return nil, fmt.Errorf("incomplete Party OAuth")
@@ -34,6 +34,9 @@ func New(ctx context.Context, base, tokenURL, id, secret string, local bool) (*C
 	return &Client{strings.TrimRight(base, "/"), h, local}, nil
 }
 func (c *Client) Exists(ctx context.Context, tenant, environment, id string) error {
+	if tenant == "" || id == "" || (environment != "sandbox" && environment != "production") {
+		return fmt.Errorf("explicit party scope required")
+	}
 	r, e := http.NewRequestWithContext(ctx, http.MethodGet, c.base+"/v1/parties/"+url.PathEscape(id), nil)
 	if e != nil {
 		return e
@@ -50,12 +53,16 @@ func (c *Client) Exists(ctx context.Context, tenant, environment, id string) err
 		return fmt.Errorf("party status %d", resp.StatusCode)
 	}
 	var out struct {
-		ID string `json:"id"`
+		PartyID string `json:"party_id"`
 	}
-	if e = json.NewDecoder(io.LimitReader(resp.Body, 1<<20)).Decode(&out); e != nil {
+	data, e := io.ReadAll(io.LimitReader(resp.Body, (1<<20)+1))
+	if e != nil || len(data) > 1<<20 {
+		return fmt.Errorf("invalid party response")
+	}
+	if e = json.Unmarshal(data, &out); e != nil {
 		return e
 	}
-	if out.ID != id {
+	if out.PartyID != id {
 		return fmt.Errorf("party mismatch")
 	}
 	return nil

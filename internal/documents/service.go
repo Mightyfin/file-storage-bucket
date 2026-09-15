@@ -9,8 +9,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"log"
 	"io"
+	"log"
 	"path/filepath"
 	"regexp"
 	"strings"
@@ -32,20 +32,21 @@ type CreateInput struct {
 	RetainUntil                                                                                                                                                             *time.Time
 }
 type Document struct {
-	ID                  string    `json:"id"`
-	PartyID             string    `json:"party_id"`
-	OwnerType           string    `json:"owner_type"`
-	OwnerID             string    `json:"owner_id"`
-	Status              string    `json:"status"`
-	ScanStatus          string    `json:"scan_status"`
-	DocumentType        string    `json:"document_type"`
-	Purpose             string    `json:"purpose"`
-	Classification      string    `json:"classification"`
-	ContentType         string    `json:"content_type"`
-	Size                int64     `json:"size_bytes"`
-	SHA256              string    `json:"sha256"`
-	CreatedAt           time.Time `json:"created_at"`
-	objectKey, filename string
+	ID                    string    `json:"id"`
+	PartyID               string    `json:"party_id"`
+	OwnerType             string    `json:"owner_type"`
+	OwnerID               string    `json:"owner_id"`
+	Status                string    `json:"status"`
+	ScanStatus            string    `json:"scan_status"`
+	DocumentType          string    `json:"document_type"`
+	Purpose               string    `json:"purpose"`
+	Classification        string    `json:"classification"`
+	ContentType           string    `json:"content_type"`
+	Size                  int64     `json:"size_bytes"`
+	SHA256                string    `json:"sha256"`
+	CreatedAt             time.Time `json:"created_at"`
+	objectKey, filename   string
+	tenantID, environment string
 }
 type Party interface {
 	Exists(context.Context, string, string, string) error
@@ -205,6 +206,14 @@ func (s *Service) Complete(ctx context.Context, scope Scope, id string) (Documen
 	if out.Status != "pending_upload" {
 		return Document{}, ErrConflict
 	}
+	// Legacy service-token lookups resolve the stored document scope first.
+	// Do not use an empty tenant or an untrusted request header for the update.
+	if scope.TenantID == "" {
+		scope.TenantID, scope.Environment = out.tenantID, out.environment
+	}
+	if scope.TenantID == "" || scope.Environment == "" {
+		return Document{}, ErrNotFound
+	}
 	if e = s.objects.Verify(ctx, out.objectKey, out.SHA256, out.Size); e != nil {
 		return Document{}, ErrConflict
 	}
@@ -262,7 +271,7 @@ func (s *Service) get(ctx context.Context, scope Scope, id string) (Document, er
 		if env == "" {
 			env = "sandbox"
 		}
-		e := s.db.QueryRow(ctx, `SELECT public_id,COALESCE(party_id,''),owner_type,owner_id,status,scan_status,document_type,purpose,classification,content_type,size_bytes,sha256_hex,created_at,object_key,original_filename FROM documents WHERE public_id=$1 AND environment=$2`, id, env).Scan(&out.ID, &out.PartyID, &out.OwnerType, &out.OwnerID, &out.Status, &out.ScanStatus, &out.DocumentType, &out.Purpose, &out.Classification, &out.ContentType, &out.Size, &out.SHA256, &out.CreatedAt, &out.objectKey, &out.filename)
+		e := s.db.QueryRow(ctx, `SELECT public_id,COALESCE(party_id,''),owner_type,owner_id,status,scan_status,document_type,purpose,classification,content_type,size_bytes,sha256_hex,created_at,object_key,original_filename,tenant_id,environment FROM documents WHERE public_id=$1 AND environment=$2`, id, env).Scan(&out.ID, &out.PartyID, &out.OwnerType, &out.OwnerID, &out.Status, &out.ScanStatus, &out.DocumentType, &out.Purpose, &out.Classification, &out.ContentType, &out.Size, &out.SHA256, &out.CreatedAt, &out.objectKey, &out.filename, &out.tenantID, &out.environment)
 		if errors.Is(e, pgx.ErrNoRows) {
 			return Document{}, ErrNotFound
 		}

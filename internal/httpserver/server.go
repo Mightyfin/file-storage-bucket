@@ -188,7 +188,7 @@ func scope(r *http.Request, p auth.Principal) documents.Scope {
 	// console session has none, so fall back to azp (the OAuth client the
 	// session belongs to, e.g. "efaas-console") rather than leaving this
 	// required field empty and rejecting every human-initiated upload.
-	return documents.Scope{p.TenantID, p.Environment, p.Subject, value(p.ApplicationID, p.AuthorizedParty), cor}
+	return documents.Scope{TenantID: p.TenantID, Environment: p.Environment, Subject: p.Subject, ApplicationID: value(p.ApplicationID, p.AuthorizedParty), CorrelationID: cor}
 }
 func decode(r *http.Request, v any) error {
 	d := json.NewDecoder(io.LimitReader(r.Body, 1<<20))

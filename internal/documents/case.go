@@ -22,7 +22,7 @@ func (s *Service) CaseUploads(ctx context.Context, scope Scope, application, par
 		if err = rows.Scan(&d.ID, &d.PartyID, &d.OwnerType, &d.OwnerID, &d.Status, &d.ScanStatus, &d.DocumentType, &d.Purpose, &d.Classification, &d.ContentType, &d.Size, &d.SHA256, &d.CreatedAt); err != nil {
 			return nil, err
 		}
-		if (d.Purpose != "manual_bank_payment" || scope.PaymentReference == application) && (d.Purpose != "manual_bank_statement" || scope.StatementReference == application) {
+		if (d.Purpose != "manual_bank_payment" || scope.PaymentReference == application) && (d.Purpose != "manual_bank_statement" || scope.StatementReference == application) && (d.Purpose != "bank_account_verification" || (validBankAccountScope(scope) && scope.BankAccountReference == application && scope.BankAccountOwnerID == d.OwnerID && scope.BankAccountOwnerType == d.OwnerType)) {
 			out = append(out, d)
 		}
 	}

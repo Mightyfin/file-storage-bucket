@@ -29,8 +29,11 @@ type Scope struct {
 	TenantID, Environment, Subject, ApplicationID, CorrelationID string
 	// PaymentReference is set only by the authenticated payment access resolver.
 	// Generic document routes never populate it from caller fields or headers.
-	PaymentReference   string
-	StatementReference string
+	PaymentReference     string
+	StatementReference   string
+	BankAccountReference string
+	BankAccountOwnerType string
+	BankAccountOwnerID   string
 }
 type CreateInput struct {
 	PartyID, OwnerType, OwnerID, SourceReference, ConsentReference, DocumentType, Purpose, Classification, Filename, ContentType, SHA256, RetentionCategory, IdempotencyKey string
@@ -75,6 +78,9 @@ func New(db *pgxpool.Pool, p Party, o Objects, bucket string, up, down time.Dura
 	return &Service{db, p, o, bucket, up, down}
 }
 func (s *Service) Create(ctx context.Context, scope Scope, in CreateInput) (Document, objectstore.SignedRequest, error) {
+	if in.Purpose == "bank_account_verification" && (!validBankAccountScope(scope) || scope.BankAccountReference != in.SourceReference || scope.BankAccountOwnerType != strings.ToUpper(in.OwnerType) || scope.BankAccountOwnerID != in.OwnerID) {
+		return Document{}, objectstore.SignedRequest{}, ErrEvidenceScope
+	}
 	if in.Purpose == "manual_bank_payment" && (scope.PaymentReference == "" || scope.PaymentReference != in.SourceReference) {
 		return Document{}, objectstore.SignedRequest{}, ErrEvidenceScope
 	}
@@ -106,7 +112,7 @@ func (s *Service) Create(ctx context.Context, scope Scope, in CreateInput) (Docu
 		scope.Environment = "sandbox"
 	}
 	log.Printf("[DEBUG] Create: scope={tenant:%s env:%s subj:%s app:%s} owner=%s/%s docType=%s filename=%s idempKey=%s", scope.TenantID, scope.Environment, scope.Subject, scope.ApplicationID, in.OwnerType, in.OwnerID, in.DocumentType, in.Filename, in.IdempotencyKey)
-	if scope.TenantID == "" || scope.Environment == "" || scope.Subject == "" || scope.ApplicationID == "" || !allowedOwner[in.OwnerType] || in.OwnerID == "" || len(in.OwnerID) > 128 || in.DocumentType == "" || in.Purpose == "" || in.RetentionCategory == "" || in.Filename == "" || len(in.Filename) > 255 || in.IdempotencyKey == "" || len(in.IdempotencyKey) > 128 || !allowedType[in.ContentType] || !allowedClass[in.Classification] || in.Size < 1 || in.Size > 50<<20 || !shaPattern.MatchString(in.SHA256) {
+	if (scope.TenantID == "" && !(in.Purpose == "bank_account_verification" && validBankAccountScope(scope))) || scope.Environment == "" || scope.Subject == "" || scope.ApplicationID == "" || !allowedOwner[in.OwnerType] || in.OwnerID == "" || len(in.OwnerID) > 128 || in.DocumentType == "" || in.Purpose == "" || in.RetentionCategory == "" || in.Filename == "" || len(in.Filename) > 255 || in.IdempotencyKey == "" || len(in.IdempotencyKey) > 128 || !allowedType[in.ContentType] || !allowedClass[in.Classification] || in.Size < 1 || in.Size > 50<<20 || !shaPattern.MatchString(in.SHA256) {
 		return Document{}, objectstore.SignedRequest{}, ErrConflict
 	}
 	fingerprintInput := in
@@ -223,7 +229,7 @@ func (s *Service) Complete(ctx context.Context, scope Scope, id string) (Documen
 	if scope.TenantID == "" {
 		scope.TenantID, scope.Environment = out.tenantID, out.environment
 	}
-	if scope.TenantID == "" || scope.Environment == "" {
+	if (scope.TenantID == "" && !(out.Purpose == "bank_account_verification" && validBankAccountScope(scope))) || scope.Environment == "" {
 		return Document{}, ErrNotFound
 	}
 	if e = s.objects.Verify(ctx, out.objectKey, out.SHA256, out.Size); e != nil {

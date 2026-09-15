@@ -134,4 +134,43 @@ func TestEvidenceIsolationAndAudit(t *testing.T) {
 			t.Fatal("statement listed outside dedicated grant", e)
 		}
 	}
+	for _, owner := range []string{"PARTY", "LEGAL_ENTITY"} {
+		tenant, party, ownerID := "tenant-a", "party-a", "party-a"
+		if owner == "LEGAL_ENTITY" {
+			tenant = ""
+			party = ""
+			ownerID = "entity-a"
+		}
+		if _, err = db.Exec(ctx, `UPDATE documents SET tenant_id=$1,party_id=$2,owner_type=$3,owner_id=$4,purpose='bank_account_verification',source_reference='bank-case',scan_status='clean'`, tenant, party, owner, ownerID); err != nil {
+			t.Fatal(err)
+		}
+		sc := Scope{TenantID: tenant, Environment: "sandbox", Subject: "staff", ApplicationID: "console", BankAccountReference: "bank-case", BankAccountOwnerType: owner, BankAccountOwnerID: ownerID}
+		if _, err = s.BankAccountDocument(ctx, sc, "doc"); err != nil {
+			t.Fatal("bank metadata", owner, err)
+		}
+		if _, err = s.BankAccountEvidence(ctx, sc, "doc", digest); err != nil {
+			t.Fatal("bank proof", owner, err)
+		}
+		generic := sc
+		generic.BankAccountReference = ""
+		if _, err = s.get(ctx, generic, "doc"); err != ErrNotFound {
+			t.Fatal("generic bank evidence exposure", owner, err)
+		}
+		for _, mutate := range []func(*Scope){func(s *Scope) { s.BankAccountReference = "another" }, func(s *Scope) { s.BankAccountOwnerID = "another" }, func(s *Scope) { s.Environment = "production" }} {
+			other := sc
+			mutate(&other)
+			if _, err = s.BankAccountEvidence(ctx, other, "doc", digest); err == nil {
+				t.Fatal("bank evidence scope leak", owner)
+			}
+		}
+		if _, err = s.BankAccountEvidence(ctx, sc, "doc", strings.Repeat("b", 64)); err != ErrConflict {
+			t.Fatal("bank digest mismatch", err)
+		}
+		if _, err = db.Exec(ctx, `UPDATE documents SET scan_status='pending'`); err != nil {
+			t.Fatal(err)
+		}
+		if _, err = s.BankAccountEvidence(ctx, sc, "doc", digest); err != ErrConflict {
+			t.Fatal("unclean bank evidence", err)
+		}
+	}
 }
